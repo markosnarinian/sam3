@@ -66,47 +66,54 @@ This breakthrough is driven by an innovative data engine that has automatically 
 
 ### Prerequisites
 
-- Python 3.12 or higher
-- PyTorch 2.7 or higher
-- CUDA-compatible GPU with CUDA 12.6 or higher
+- A CUDA-compatible GPU with an NVIDIA driver that supports CUDA 12.8
+- [`uv`](https://docs.astral.sh/uv/getting-started/installation/)
 
-1. **Create a new Conda environment:**
-
-```bash
-conda create -n sam3 python=3.12
-conda deactivate
-conda activate sam3
-```
-
-2. **Install PyTorch with CUDA support:**
-
-```bash
-pip install torch==2.10.0 torchvision --index-url https://download.pytorch.org/whl/cu128
-```
-
-3. **Clone the repository and install the package:**
+1. **Clone the repository:**
 
 ```bash
 git clone https://github.com/facebookresearch/sam3.git
 cd sam3
-pip install -e .
 ```
 
-4. **Install additional dependencies for example notebooks or development:**
+2. **Create the environment and install SAM 3:**
+
+```bash
+uv sync --locked
+```
+
+`uv` installs Python 3.12 when needed, creates `.venv`, and installs the package
+in editable mode. PyTorch and torchvision are installed from the CUDA 12.8
+PyTorch index. Run commands in the environment with `uv run`, or activate it:
+
+```bash
+source .venv/bin/activate
+```
+
+3. **Install additional dependencies for example notebooks or development:**
 
 ```bash
 # For running example notebooks
-pip install -e ".[notebooks]"
+uv sync --locked --extra notebooks
 
 # For development
-pip install -e ".[train,dev]"
+uv sync --locked --group dev --extra train
 ```
 
-5. **Optional dependencies for faster inference**
+4. **Install optional dependencies for faster inference:**
+
 ```bash
-pip install einops ninja && pip install flash-attn-3 --no-deps --index-url https://download.pytorch.org/whl/cu128
-pip install git+https://github.com/ronghanghu/cc_torch.git
+# FlashAttention-3 (for supported Hopper GPUs)
+uv sync --locked --group fa3
+
+# CUDA connected-components extension
+uv sync --locked --group cc-torch
 ```
+
+`cc-torch` is built locally and requires a CUDA 12.8 toolkit (including `nvcc`)
+and a compatible C++ compiler. Its source revision and Python build dependencies
+are locked, but the system CUDA toolchain is not managed by `uv`. Combine group
+and extra flags in one `uv sync` command when you need multiple feature sets.
 
 ## Getting Started
 
@@ -188,10 +195,10 @@ To run the Jupyter notebook examples:
 
 ```bash
 # Make sure you have the notebooks dependencies installed
-pip install -e ".[notebooks]"
+uv sync --locked --extra notebooks
 
 # Start Jupyter notebook
-jupyter notebook examples/sam3_image_predictor_example.ipynb
+uv run jupyter notebook examples/sam3_image_predictor_example.ipynb
 ```
 
 ## Model
@@ -360,13 +367,13 @@ We release 2 image benchmarks, [SA-Co/Gold](scripts/eval/gold/README.md) and
 To set up the development environment:
 
 ```bash
-pip install -e ".[dev,train]"
+uv sync --locked --group dev --extra train
 ```
 
 To format the code:
 
 ```bash
-ufmt format .
+uv run ufmt format .
 ```
 
 ## Contributing

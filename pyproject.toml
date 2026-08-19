@@ -7,7 +7,7 @@ name = "sam3"
 dynamic = ["version"]
 description = "SAM3 (Segment Anything Model 3) implementation"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.12,<3.13"
 license = {file = "LICENSE"}
 authors = [
     {name = "Meta AI Research"}
@@ -17,16 +17,18 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
+    "torch>=2.7",
+    "torchvision>=0.22",
     "timm>=1.0.17",
+    "einops",
     "numpy>=1.26,<2",
+    "pillow",
+    "psutil",
+    "pycocotools",
     "tqdm",
     "ftfy==6.1.1",
     "regex",
@@ -36,21 +38,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest",
-    "pytest-cov",
-    "black==24.2.0",
-    "ufmt==2.8.0",
-    "ruff-api==0.1.0",
-    "usort==1.0.2",
-    "gitpython==3.1.31",
-    "yt-dlp",
-    "pandas",
-    "opencv-python",
-    "pycocotools",
-    "numba",
-    "python-rapidjson",
-]
 notebooks = [
     "matplotlib",
     "jupyter",
@@ -58,10 +45,8 @@ notebooks = [
     "ipywidgets",
     "ipycanvas",
     "ipympl",
-    "pycocotools",
     "decord",
     "opencv-python",
-    "einops",
     "scikit-image",
     "scikit-learn",
 ]
@@ -77,6 +62,56 @@ train = [
     "scikit-image",
     "scikit-learn",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "black==24.2.0",
+    "ufmt==2.8.0",
+    "ruff-api==0.1.0",
+    "usort==1.0.2",
+    "gitpython==3.1.31",
+    "yt-dlp",
+    "pandas",
+    "opencv-python",
+    "numba",
+    "python-rapidjson",
+]
+fa3 = [
+    "flash-attn-3==3.0.0",
+    "ninja",
+]
+cc-torch = [
+    "cc-torch==0.2",
+    "ninja",
+]
+
+[tool.uv]
+default-groups = []
+constraint-dependencies = [
+    "torch==2.10.0",
+    "torchvision==0.25.0",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+flash-attn-3 = { index = "pytorch-cu128" }
+cc-torch = { git = "https://github.com/ronghanghu/cc_torch.git", rev = "446e9360ed10d3c8d03925ccb5f220ccb62009de" }
+
+[[tool.uv.dependency-metadata]]
+name = "cc-torch"
+version = "0.2"
+requires-dist = []
+
+[tool.uv.extra-build-dependencies]
+cc-torch = ["torch==2.10.0", "setuptools", "wheel", "ninja"]
 
 [project.urls]
 "Homepage" = "https://github.com/facebookresearch/sam3"
@@ -94,7 +129,7 @@ version = {attr = "sam3.__version__"}
 
 [tool.black]
 line-length = 88
-target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+target-version = ['py312']
 include = '\.pyi?$'
 
 [tool.isort]

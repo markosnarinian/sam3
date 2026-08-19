@@ -6,9 +6,11 @@ This repository supports finetuning SAM3 models on custom datasets in multi-node
 ## Installation
 
 ```bash
-cd sam3
-pip install -e ".[train]"
+uv sync --locked --extra train
 ```
+
+Run the commands below with `uv run` (for example,
+`uv run python sam3/train/train.py ...`) or activate `.venv` first.
 
 ### Training Script Usage
 
