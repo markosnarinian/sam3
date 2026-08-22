@@ -62,6 +62,17 @@ This breakthrough is driven by an innovative data engine that has automatically 
 - A new suite of improved model checkpoints (denoted as **SAM 3.1**) are released on [Hugging Face](https://huggingface.co/facebook/sam3.1). See [`RELEASE_SAM3p1.md`](RELEASE_SAM3p1.md) for full details.
   * To use the new SAM 3.1 checkpoints, you need the latest model code from this repo. If you have installed an earlier version of this repo, pull the latest code from this repo (with `git pull`), and then reinstall the repo following [Installation](#installation) below.
 
+> [!IMPORTANT]
+> **Environment management has moved from Conda and pip to
+> [`uv`](https://docs.astral.sh/uv/).** The committed `uv.lock` is now the
+> source of truth for reproducible development environments. It pins CPython
+> 3.12, PyTorch 2.10.0, torchvision 0.25.0, and the CUDA 12.8 wheel index.
+> Existing Conda environments are not updated in place: install `uv` and run
+> `uv sync --locked` to create the repository's `.venv`. Notebook, training,
+> evaluation, development, and optional acceleration dependencies are selected
+> with the extras and groups documented below. NVIDIA drivers, the CUDA toolkit
+> required to compile `cc-torch`, and other system tools remain outside `uv`.
+
 ## Installation
 
 ### Prerequisites
@@ -96,6 +107,9 @@ source .venv/bin/activate
 # For running example notebooks
 uv sync --locked --extra notebooks
 
+# For evaluation and dataset preparation
+uv sync --locked --group eval
+
 # For development
 uv sync --locked --group dev --extra train
 ```
@@ -114,6 +128,12 @@ uv sync --locked --group cc-torch
 and a compatible C++ compiler. Its source revision and Python build dependencies
 are locked, but the system CUDA toolchain is not managed by `uv`. Combine group
 and extra flags in one `uv sync` command when you need multiple feature sets.
+Because `uv sync` makes `.venv` exactly match the selected features, repeat all
+needed flags when changing the environment, for example:
+
+```bash
+uv sync --locked --extra notebooks --extra train --group dev --group eval
+```
 
 ## Getting Started
 

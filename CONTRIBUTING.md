@@ -2,6 +2,26 @@
 We want to make contributing to this project as easy and transparent as
 possible.
 
+## Development environment
+
+Install [`uv`](https://docs.astral.sh/uv/getting-started/installation/), then
+create the locked development and training environment from the repository root:
+
+```bash
+uv sync --locked --group dev --extra train
+```
+
+Run tools through `uv` so they use the managed `.venv`:
+
+```bash
+uv run pytest -q test
+uv run ufmt format <changed-python-files>
+```
+
+When changing dependencies, update `pyproject.toml`, run `uv lock`, and include
+the resulting `uv.lock` change. Otherwise, use `uv lock --check` to confirm the
+lockfile is current.
+
 ## Pull Requests
 We actively welcome your pull requests.
 

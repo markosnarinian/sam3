@@ -10,11 +10,11 @@
 * SA-Co/VEval - SmartGlasses: egocentric videos from [Smart Glasses](https://huggingface.co/datasets/facebook/SACo-VEval/blob/main/media/saco_sg.tar.gz)
 
 ## Environment
-Install the SA-Co/VEVal required environment
+Install the locked SA-Co/VEval dependencies from the repository root:
+```bash
+uv sync --locked --group eval
 ```
-pip install -e ".[veval]"
-```
-This will allow us to run:
+Run commands with `uv run`. This environment supports:
 * `scripts/eval/veval/saco_yt1b_downloader.py` preparing frames for SA-Co/VEval - YT-Temporal-1B
 * `examples/saco_veval_eval_example.ipynb` example of running an offline evaluator
 * `examples/saco_veval_vis_example.ipynb` example of loading and visualizing the data
@@ -91,7 +91,8 @@ media/
 ```
 Example commands to download and merge folders
 ```
-cd ../data/media/saco_sav
+mkdir -p data/media/saco_sav
+(cd data/media/saco_sav
 wget -O sav_test.tar <sav_test.tar download link from the SA-V dataset page>
 wget -O sav_val.tar <sav_val.tar download link from the SA-V dataset page>
 tar -xf sav_test.tar
@@ -100,7 +101,7 @@ mkdir JPEGImages_24fps
 chmod -R u+w sav_test/
 chmod -R u+w sav_val/
 mv sav_test/JPEGImages_24fps/* JPEGImages_24fps/
-mv sav_val/JPEGImages_24fps/* JPEGImages_24fps/
+mv sav_val/JPEGImages_24fps/* JPEGImages_24fps/)
 ```
 
 ##### SA-Co/VEval - YT-Temporal-1B
@@ -111,11 +112,11 @@ Two files are needed to download the SA-Co/VEval - YT-Temporal-1B Youtube videos
 
 Then run `scripts/eval/veval/saco_yt1b_downloader.py` to download the videos and prepare the frames e.g.
 ```
-python saco_yt1b_downloader.py \
---data_dir ../data/media/saco_yt1b \
---cookies_file ../data/media/saco_yt1b/cookies.txt \
---yt1b_start_end_time_file ../data/media/saco_yt1b/yt1b_start_end_time.json \
---yt1b_frame_prep_log_file ../data/media/saco_yt1b/yt1b_frame_prep.log
+uv run python scripts/eval/veval/saco_yt1b_downloader.py \
+--data_dir data/media/saco_yt1b \
+--cookies_file data/media/saco_yt1b/cookies.txt \
+--yt1b_start_end_time_file data/media/saco_yt1b/yt1b_start_end_time.json \
+--yt1b_frame_prep_log_file data/media/saco_yt1b/yt1b_frame_prep.log
 ```
 * data_dir: The directoy to download the Youtube videos and store the extraced frames
 * cookies_file: the `cookies.txt` downloaded above
@@ -124,11 +125,11 @@ python saco_yt1b_downloader.py \
 
 Then run `scripts/eval/veval/saco_yt1b_annot_update.py` to update the annotation based on the video availability e.g.
 ```
-python saco_yt1b_annot_update.py \
---yt1b_media_dir ../data/media/saco_yt1b/JPEGImages_6fps \
---yt1b_input_annot_path ../data/annotation/saco_veval_yt1b_val.json \
---yt1b_output_annot_path ../data/annotation/saco_veval_yt1b_val_updated.json \
---yt1b_annot_update_log_path ../data/annotation/saco_veval_yt1b_val_updated.log
+uv run python scripts/eval/veval/saco_yt1b_annot_update.py \
+--yt1b_media_dir data/media/saco_yt1b/JPEGImages_6fps \
+--yt1b_input_annot_path data/annotation/saco_veval_yt1b_val.json \
+--yt1b_output_annot_path data/annotation/saco_veval_yt1b_val_updated.json \
+--yt1b_annot_update_log_path data/annotation/saco_veval_yt1b_val_updated.log
 ```
 
 **NOTE**:
@@ -138,10 +139,9 @@ python saco_yt1b_annot_update.py \
 ##### SA-Co/VEval - SmartGlasses
 Go to [SACo-VEval](https://huggingface.co/datasets/facebook/SACo-VEval/tree/main) download `media/saco_sg.tar.gz`
 ```
-cd ../data
-hf download facebook/SACo-VEval media/saco_sg.tar.gz --repo-type dataset --local-dir .
-cd ../data/media
-tar -xzf saco_sg.tar.gz
+mkdir -p data
+hf download facebook/SACo-VEval media/saco_sg.tar.gz --repo-type dataset --local-dir data
+tar -xzf data/media/saco_sg.tar.gz -C data/media
 ```
 
 ## Annotation Format
@@ -228,20 +228,20 @@ sam3/
 
 Example usage
 ```
-python saco_veval_eval.py one \
---gt_annot_file ../sam3/assets/veval/toy_gt_and_pred/toy_saco_veval_sav_test_gt.json \
---pred_file ../sam3/assets/veval/toy_gt_and_pred/toy_saco_veval_sav_test_pred.json \
---eval_res_file ../sam3/assets/veval/toy_gt_and_pred/toy_saco_veval_sav_test_eval_res.json
+uv run python sam3/eval/saco_veval_eval.py one \
+--gt_annot_file assets/veval/toy_gt_and_pred/toy_saco_veval_sav_test_gt.json \
+--pred_file assets/veval/toy_gt_and_pred/toy_saco_veval_sav_test_pred.json \
+--eval_res_file assets/veval/toy_gt_and_pred/toy_saco_veval_sav_test_eval_res.json
 ```
 * `gt_annot_file`: the location of the GT file
 * `pred_file`: the location of the Pred file
 * `eval_res_file`: the location where the eval result will be written to
 
 ```
-python saco_veval_eval.py all \
---gt_annot_dir ../data/annotation \
---pred_dir ../data/pred \
---eval_res_dir ../data/pred
+uv run python sam3/eval/saco_veval_eval.py all \
+--gt_annot_dir data/annotation \
+--pred_dir data/pred \
+--eval_res_dir data/pred
 ```
 * `gt_annot_dir`: the location of the GT files
 * `pred_dir`: the location of the Pred files
