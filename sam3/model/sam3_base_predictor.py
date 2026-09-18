@@ -75,6 +75,13 @@ class Sam3BasePredictor:
                 obj_id=request.get("obj_id", None),
                 rel_coordinates=request.get("rel_coordinates", True),
             )
+        elif request_type == "add_mask":
+            return self.add_mask(
+                session_id=request["session_id"],
+                frame_idx=request["frame_index"],
+                obj_id=request["obj_id"],
+                mask=request["mask"],
+            )
         elif request_type == "remove_object":
             return self.remove_object(
                 session_id=request["session_id"],
@@ -208,6 +215,31 @@ class Sam3BasePredictor:
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
             frame_idx, outputs = self.model.add_prompt(**filtered_kwargs)
         return {"frame_index": frame_idx, "outputs": outputs}
+
+    def add_mask(self, session_id: str, frame_idx: int, obj_id: int, mask):
+        """Condition one caller-specified tracker object with a binary mask."""
+        session = self._get_session(session_id)
+        inference_state = session["state"]
+        self._extend_expiration_time(session)
+        # Only the instance-interactivity model takes a caller mask; the
+        # multiplex model exposes point-based tracker APIs instead. Probed the
+        # way the other handlers here probe, so a request routed to a model
+        # that cannot serve it says so rather than raising `AttributeError`
+        # from inside the autocast block.
+        if not hasattr(self.model, "add_tracker_new_mask"):
+            raise NotImplementedError(
+                f"{type(self.model).__name__} does not support add_mask: it has "
+                "no `add_tracker_new_mask`. Use a point or box prompt instead."
+            )
+        mask_tensor = torch.as_tensor(mask, dtype=torch.bool)
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            result_frame, outputs = self.model.add_tracker_new_mask(
+                inference_state=inference_state,
+                frame_idx=frame_idx,
+                obj_id=obj_id,
+                mask=mask_tensor,
+            )
+        return {"frame_index": result_frame, "outputs": outputs}
 
     def remove_object(
         self,
