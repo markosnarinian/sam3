@@ -744,9 +744,10 @@ class Sam3VideoInference(Sam3VideoBase):
         high_res_H, high_res_W = (
             self.tracker.maskmem_backbone.mask_downsampler.interpol_size
         )
+        # Citrine C3: allocate directly on the tracker device.
         new_det_masks = torch.ones(
-            len(new_det_obj_ids_local), high_res_H, high_res_W
-        ).to(self.device)
+            len(new_det_obj_ids_local), high_res_H, high_res_W, device=self.device
+        )
 
         inference_state["tracker_inference_states"] = self._tracker_add_new_objects(
             frame_idx=frame_idx,
@@ -1100,46 +1101,16 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
 
                 # broadcast refined object tracker scores and masks to all GPUs
                 # handle multiple objects that can be located on different GPUs
-                refined_obj_data = {}  # obj_id -> (score, mask_video_res)
-
-                # Collect data for objects on this GPU
-                local_obj_data = {}
-                for obj_id in obj_ids:
-                    obj_rank = self._get_gpu_id_by_obj_id(inference_state, obj_id)
-                    if self.rank == obj_rank and obj_id in obj_ids_local:
-                        refined_obj_idx = obj_ids_local.index(obj_id)
-                        refined_mask_low_res = low_res_masks_local[
-                            refined_obj_idx
-                        ]  # (H_low_res, W_low_res)
-                        refined_score = tracker_scores_local[refined_obj_idx]
-
-                        # Keep low resolution for broadcasting to reduce communication cost
-                        local_obj_data[obj_id] = (refined_score, refined_mask_low_res)
-
-                # Broadcast data from each GPU that has refined objects
-                if self.world_size > 1:
-                    for obj_id in obj_ids:
-                        obj_rank = self._get_gpu_id_by_obj_id(inference_state, obj_id)
-                        if self.rank == obj_rank:
-                            # This GPU has the object, broadcast its data
-                            data_to_broadcast = local_obj_data.get(obj_id, None)
-                            data_list = [
-                                (data_to_broadcast[0].cpu(), data_to_broadcast[1].cpu())
-                            ]
-                            self.broadcast_python_obj_cpu(data_list, src=obj_rank)
-                            if data_to_broadcast is not None:
-                                refined_obj_data[obj_id] = data_to_broadcast
-                        elif self.rank != obj_rank:
-                            # This GPU doesn't have the object, receive data
-                            data_list = [None]
-                            self.broadcast_python_obj_cpu(data_list, src=obj_rank)
-                            refined_obj_data[obj_id] = (
-                                data_list[0][0].to(self.device),
-                                data_list[0][1].to(self.device),
-                            )
-                else:
-                    # Single GPU case
-                    refined_obj_data = local_obj_data
+                local_obj_data = self._collect_local_refined_objects(
+                    inference_state,
+                    obj_ids,
+                    obj_ids_local,
+                    low_res_masks_local,
+                    tracker_scores_local,
+                )
+                refined_obj_data = self._share_refined_objects(
+                    inference_state, obj_ids, local_obj_data
+                )
 
                 # Update Tracker scores for all refined objects
                 for obj_id, (refined_score, _) in refined_obj_data.items():
@@ -1191,6 +1162,65 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                     )
                 else:
                     yield frame_idx, None
+
+    def _collect_local_refined_objects(
+        self,
+        inference_state,
+        obj_ids,
+        obj_ids_local,
+        low_res_masks_local,
+        tracker_scores_local,
+    ):
+        """This rank's refined (score, low-res mask) for each object it owns.
+
+        Left at low resolution deliberately: the result is broadcast to every
+        rank, and upscaling first multiplies the payload without adding
+        information.
+        """
+        local_obj_data = {}
+        for obj_id in obj_ids:
+            obj_rank = self._get_gpu_id_by_obj_id(inference_state, obj_id)
+            if self.rank == obj_rank and obj_id in obj_ids_local:
+                refined_obj_idx = obj_ids_local.index(obj_id)
+                local_obj_data[obj_id] = (
+                    tracker_scores_local[refined_obj_idx],
+                    low_res_masks_local[refined_obj_idx],
+                )
+        return local_obj_data
+
+    def _share_refined_objects(self, inference_state, obj_ids, local_obj_data):
+        """Every rank's view of every refined object, after the broadcast."""
+        if self.world_size == 1:
+            return local_obj_data
+        refined_obj_data = {}  # obj_id -> (score, low-res mask)
+        for obj_id in obj_ids:
+            obj_rank = self._get_gpu_id_by_obj_id(inference_state, obj_id)
+            # An object can be mapped to this rank while absent from its local
+            # tracker state (metadata and tracker momentarily out of sync). The
+            # broadcast still has to run on every rank for every object, so the
+            # payload carries the absence rather than the rank skipping the call.
+            if self.rank == obj_rank:
+                # This GPU has the object, broadcast its data
+                data_to_broadcast = local_obj_data.get(obj_id, None)
+                data_list = [
+                    None
+                    if data_to_broadcast is None
+                    else (data_to_broadcast[0].cpu(), data_to_broadcast[1].cpu())
+                ]
+                self.broadcast_python_obj_cpu(data_list, src=obj_rank)
+                if data_to_broadcast is not None:
+                    refined_obj_data[obj_id] = data_to_broadcast
+            else:
+                # This GPU doesn't have the object, receive data
+                data_list = [None]
+                self.broadcast_python_obj_cpu(data_list, src=obj_rank)
+                received = data_list[0]
+                if received is not None:
+                    refined_obj_data[obj_id] = (
+                        received[0].to(self.device),
+                        received[1].to(self.device),
+                    )
+        return refined_obj_data
 
     def add_action_history(
         self, inference_state, action_type, frame_idx=None, obj_ids=None
