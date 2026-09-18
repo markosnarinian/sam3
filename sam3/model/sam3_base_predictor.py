@@ -29,6 +29,11 @@ logger = get_logger(__name__)
 _CLEAR_CACHE_THRESHOLD = 80
 
 
+def _evict_cached_frame_output(inference_state, frame_idx, enabled):
+    if enabled:
+        inference_state.get("cached_frame_outputs", {}).pop(frame_idx, None)
+
+
 class Sam3BasePredictor:
     """
     Base class for SAM3 video predictors. Provides:
@@ -119,6 +124,9 @@ class Sam3BasePredictor:
                 ),
                 force_tracker_propagation=request.get(
                     "force_tracker_propagation", False
+                ),
+                evict_cached_frame_outputs=request.get(
+                    "evict_cached_frame_outputs", False
                 ),
             )
         else:
@@ -296,6 +304,7 @@ class Sam3BasePredictor:
         max_frame_num_to_track=None,
         output_prob_thresh=0.5,
         force_tracker_propagation=False,
+        evict_cached_frame_outputs=False,
         **kwargs,
     ):
         """Propagate the added prompts to get results on all video frames."""
@@ -333,6 +342,9 @@ class Sam3BasePredictor:
                     **propagate_kwargs,
                     reverse=False,
                 ):
+                    _evict_cached_frame_output(
+                        inference_state, frame_idx, evict_cached_frame_outputs
+                    )
                     yield {"frame_index": frame_idx, "outputs": outputs}
             # Backward propagation
             if propagation_direction in ["both", "backward"]:
@@ -340,6 +352,9 @@ class Sam3BasePredictor:
                     **propagate_kwargs,
                     reverse=True,
                 ):
+                    _evict_cached_frame_output(
+                        inference_state, frame_idx, evict_cached_frame_outputs
+                    )
                     yield {"frame_index": frame_idx, "outputs": outputs}
         finally:
             logger.info(f"propagation ended in session {session_id}")
