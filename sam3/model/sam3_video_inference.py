@@ -998,17 +998,22 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
         )
 
     @torch.inference_mode()
-    def propagate_in_video(
+    def propagate_in_video(  # noqa: C901
         self,
         inference_state,
         start_frame_idx=None,
         max_frame_num_to_track=None,
         reverse=False,
+        force_tracker_propagation=False,
     ):
-        # step 1: check which type of propagation to run, should be the same for all GPUs.
-        propagation_type, obj_ids = self.parse_action_history_for_propagation(
-            inference_state
-        )
+        # Observation-conditioned callers explicitly run both directions. Do not
+        # let a boundary-started first pass turn the second into a cache fetch.
+        if force_tracker_propagation:
+            propagation_type, obj_ids = self._forced_propagation(inference_state)
+        else:
+            propagation_type, obj_ids = self.parse_action_history_for_propagation(
+                inference_state
+            )
         self.add_action_history(
             inference_state,
             action_type=propagation_type,
@@ -1162,6 +1167,26 @@ class Sam3VideoInferenceWithInstanceInteractivity(Sam3VideoInference):
                     )
                 else:
                     yield frame_idx, None
+
+    @staticmethod
+    def _forced_propagation(inference_state):
+        """The propagation a forced pass should run, and the objects it covers.
+
+        `tracker_metadata` is populated lazily by `add_tracker_new_points`, so
+        a forced pass issued before any object was
+        added has no `obj_ids_all_gpu` key and no tracker state to propagate.
+        Falling back to a full pass is what `parse_action_history_for_propagation`
+        does with an empty history; reading the key unconditionally raised
+        `KeyError`, and an empty id list took the partial path with nothing in it.
+        """
+        metadata = inference_state.get("tracker_metadata") or {}
+        obj_ids_all_gpu = metadata.get("obj_ids_all_gpu")
+        if obj_ids_all_gpu is None:
+            return "propagation_full", None
+        obj_ids = obj_ids_all_gpu.tolist()
+        if not obj_ids:
+            return "propagation_full", None
+        return "propagation_partial", obj_ids
 
     def _collect_local_refined_objects(
         self,

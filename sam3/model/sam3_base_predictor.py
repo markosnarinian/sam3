@@ -110,6 +110,9 @@ class Sam3BasePredictor:
                     "output_prob_thresh",
                     getattr(self, "default_output_prob_thresh", 0.5),
                 ),
+                force_tracker_propagation=request.get(
+                    "force_tracker_propagation", False
+                ),
             )
         else:
             raise RuntimeError(f"invalid request type: {request_type}")
@@ -260,6 +263,7 @@ class Sam3BasePredictor:
         start_frame_idx=None,
         max_frame_num_to_track=None,
         output_prob_thresh=0.5,
+        force_tracker_propagation=False,
         **kwargs,
     ):
         """Propagate the added prompts to get results on all video frames."""
@@ -283,6 +287,10 @@ class Sam3BasePredictor:
             sig = inspect.signature(self.model.propagate_in_video)
             if "output_prob_thresh" in sig.parameters:
                 propagate_kwargs["output_prob_thresh"] = output_prob_thresh
+            if "force_tracker_propagation" in sig.parameters:
+                propagate_kwargs["force_tracker_propagation"] = (
+                    force_tracker_propagation
+                )
             for k, v in kwargs.items():
                 if k in sig.parameters:
                     propagate_kwargs[k] = v
