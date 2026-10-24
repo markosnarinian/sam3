@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+SECONDS=0
+
+echo "[setup] Checking system dependencies"
+missing=()
+for package in build-essential ca-certificates curl ffmpeg libgl1 libglib2.0-0; do
+    if [[ "$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null || true)" != "install ok installed" ]]; then
+        missing+=("$package")
+    fi
+done
+if ((${#missing[@]})); then
+    sudo apt-get update
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+fi
+echo "[setup] System dependencies ready (${SECONDS}s)"
+
+if ! command -v uv >/dev/null 2>&1; then
+    echo "[setup] Installing uv"
+    curl -LsSf https://astral.sh/uv/0.12.9/install.sh | sudo env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh
+fi
+uv --version
+
+# Use the project's Python pin, lockfile, and CUDA wheels even on CPU-only orbs.
+# CUDA compilation groups require GPU hardware/toolkits and are intentionally omitted.
+echo "[setup] Installing the locked development and training environment"
+uv sync --locked --group dev --extra train
+echo "[setup] Environment ready (${SECONDS}s total). Run tools with uv run --no-sync."

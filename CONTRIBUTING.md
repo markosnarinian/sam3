@@ -22,6 +22,21 @@ When changing dependencies, update `pyproject.toml`, run `uv lock`, and include
 the resulting `uv.lock` change. Otherwise, use `uv lock --check` to confirm the
 lockfile is current.
 
+### Amp orbs
+
+`.agents/setup` prepares the locked development and training environment, Python
+3.12, and system libraries for video processing. Amp snapshots this environment
+for reuse by fresh orbs. `.agents/resume` checks the existing environment without
+installing anything on wake. To repair or refresh dependencies manually, rerun
+`.agents/setup`.
+
+Use `uv run --no-sync pytest -q test` and `uv run --no-sync ufmt format <files>`
+to use the prepared environment without changing its installed feature set.
+Notebook and evaluation dependencies are not preinstalled. GPU-only acceleration
+extensions, NVIDIA drivers, CUDA compilation tools, model weights, and Hugging
+Face authentication are also excluded. CPU tests run in orbs, but full inference
+and training require suitable GPU hardware and authorized model access.
+
 ## Pull Requests
 We actively welcome your pull requests.
 

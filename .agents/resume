@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+# Dependencies persist in the snapshot; never reinstall them on wake.
+if [[ ! -x .venv/bin/python ]]; then
+    echo "[resume] Missing development environment; run .agents/setup." >&2
+    exit 1
+fi
+echo "[resume] Development environment ready ($( .venv/bin/python --version))."
