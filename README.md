@@ -66,7 +66,8 @@ This breakthrough is driven by an innovative data engine that has automatically 
 > **Environment management has moved from Conda and pip to
 > [`uv`](https://docs.astral.sh/uv/).** The committed `uv.lock` is now the
 > source of truth for reproducible development environments. It pins CPython
-> 3.12, PyTorch 2.10.0, torchvision 0.25.0, and the CUDA 12.8 wheel index.
+> 3.12, PyTorch 2.10.0, and torchvision 0.25.0. Linux/Windows use CUDA 12.8
+> wheels; macOS uses PyPI wheels with Metal/MPS support.
 > Existing Conda environments are not updated in place: install `uv` and run
 > `uv sync --locked` to create the repository's `.venv`. Notebook, training,
 > evaluation, development, and optional acceleration dependencies are selected
@@ -77,13 +78,16 @@ This breakthrough is driven by an innovative data engine that has automatically 
 
 ### Prerequisites
 
-- A CUDA-compatible GPU with an NVIDIA driver that supports CUDA 12.8
+- For single-image inference: an NVIDIA CUDA GPU, an Apple Silicon Mac with
+  Metal/MPS support, or CPU. The same checkpoints and image API work on all three.
+- NVIDIA GPU users need a driver supporting CUDA 12.8. Video inference and
+  training still require CUDA; MPS support is scoped to single-image inference.
 - [`uv`](https://docs.astral.sh/uv/getting-started/installation/)
 
 1. **Clone the repository:**
 
 ```bash
-git clone https://github.com/facebookresearch/sam3.git
+git clone https://github.com/markosnarinian/sam3.git
 cd sam3
 ```
 
@@ -94,8 +98,13 @@ uv sync --locked
 ```
 
 `uv` installs Python 3.12 when needed, creates `.venv`, and installs the package
-in editable mode. PyTorch and torchvision are installed from the CUDA 12.8
-PyTorch index. Run commands in the environment with `uv run`, or activate it:
+in editable mode. PyTorch and torchvision use the CUDA 12.8 index on Linux/Windows
+and PyPI on macOS, where MPS is included without CUDA packages. CUDA wheels also
+support CPU inference on machines without an NVIDIA GPU. No video, training, or
+optional acceleration groups are needed for the basic image API.
+On a Mac, check MPS with
+`uv run python -c "import torch; print(torch.backends.mps.is_available())"`.
+Run commands in the environment with `uv run`, or activate it:
 
 ```bash
 source .venv/bin/activate
@@ -114,8 +123,7 @@ uv sync --locked --group eval
 uv sync --locked --group dev --extra train
 ```
 
-4. **Install optional dependencies for faster inference:**
-
+4. **Install optional CUDA dependencies for faster inference (not for Mac/CPU):**
 ```bash
 # FlashAttention-3 (for supported Hopper GPUs)
 uv sync --locked --group fa3
@@ -145,6 +153,13 @@ the following [steps](https://huggingface.co/docs/huggingface_hub/en/quick-start
 
 ### Basic Usage
 
+The image builder automatically selects **CUDA → MPS → CPU**. The processor
+uses the model's device, so existing image code needs no device-specific changes.
+To override selection, pass `device="mps"`, `device="cpu"`, `device="cuda:0"`, or a
+`torch.device` to `build_sam3_image_model`. MPS and CPU use float32 by default;
+do not enter a CUDA autocast context on those backends. `compile=True` is currently
+supported only on CUDA. `PYTORCH_ENABLE_MPS_FALLBACK` is not required.
+
 ```python
 import torch
 #################################### For Image ####################################
@@ -155,16 +170,46 @@ from sam3.model.sam3_image_processor import Sam3Processor
 model = build_sam3_image_model()
 processor = Sam3Processor(model)
 # Load an image
-image = Image.open("<YOUR_IMAGE_PATH.jpg>")
+image = Image.open("<YOUR_IMAGE_PATH.jpg>").convert("RGB")
 inference_state = processor.set_image(image)
 # Prompt the model with text
 output = processor.set_text_prompt(state=inference_state, prompt="<YOUR_TEXT_PROMPT>")
 
 # Get the masks, bounding boxes, and scores
 masks, boxes, scores = output["masks"], output["boxes"], output["scores"]
+```
 
-#################################### For Video ####################################
+Outputs stay on the model's device: masks have shape `(N, 1, H, W)`, boxes are
+pixel coordinates `[x0, y0, x1, y1]` with shape `(N, 4)`, and scores have shape
+`(N,)`. Use `.cpu()` before converting to NumPy or exporting annotations.
 
+For automatic annotation with multiple independent labels, compute the image
+embedding once and reuse it:
+
+```python
+annotations = {}
+for label in ["person", "car", "bicycle"]:
+    processor.reset_all_prompts(inference_state)
+    output = processor.set_text_prompt(state=inference_state, prompt=label)
+    annotations[label] = {
+        "masks": output["masks"].cpu().numpy(),
+        "boxes": output["boxes"].float().cpu().numpy(),
+        "scores": output["scores"].float().cpu().numpy(),
+    }
+```
+
+Call `set_image` again for the next image. Adjust filtering with
+`Sam3Processor(model, confidence_threshold=0.5)`. Empty results have `N = 0`.
+To use an already-downloaded checkpoint without contacting Hugging Face:
+
+```python
+model = build_sam3_image_model(checkpoint_path="/path/to/sam3.pt", load_from_HF=False)
+processor = Sam3Processor(model)
+```
+
+### Video Usage (CUDA)
+
+```python
 from sam3.model_builder import build_sam3_video_predictor
 
 video_predictor = build_sam3_video_predictor()
@@ -186,6 +231,19 @@ response = video_predictor.handle_request(
 )
 output = response["outputs"]
 ```
+
+### Checking image inference
+
+```bash
+uv run --locked --group dev pytest test/test_image_inference.py
+# Optionally exercise the same tests with your authorized checkpoint:
+SAM3_TEST_CHECKPOINT=/path/to/sam3.pt uv run --locked --group dev pytest test/test_image_inference.py
+```
+
+The tests exercise the full image model on CPU and available accelerators,
+including text prompts, positive/negative box prompts, and empty results. Without
+a checkpoint they use initialized random weights to check execution, not
+segmentation accuracy. CUDA cases are skipped when no NVIDIA GPU is available.
 
 ## Examples
 

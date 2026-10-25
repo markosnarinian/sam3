@@ -2,9 +2,11 @@
 
 # pyre-unsafe
 
+from __future__ import annotations
+
 import os
 from importlib.resources import files
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 import torch
 import torch.nn as nn
@@ -40,14 +42,16 @@ from sam3.model.position_encoding import PositionEmbeddingSine
 from sam3.model.sam1_task_predictor import SAM3InteractiveImagePredictor
 from sam3.model.sam3_image import Sam3Image, Sam3ImageOnVideoMultiGPU
 from sam3.model.sam3_tracking_predictor import Sam3TrackerPredictor
-from sam3.model.sam3_video_inference import Sam3VideoInferenceWithInstanceInteractivity
-from sam3.model.sam3_video_predictor import Sam3VideoPredictorMultiGPU
 from sam3.model.text_encoder_ve import VETextEncoder
 from sam3.model.tokenizer_ve import SimpleTokenizer
-from sam3.model.video_tracking_multiplex import VideoTrackingDynamicMultiplex
 from sam3.model.vitdet import ViT
 from sam3.model.vl_combiner import SAM3VLBackbone, SAM3VLBackboneTri, TriHeadVisionOnly
 from sam3.sam.transformer import RoPEAttention
+
+if TYPE_CHECKING:
+    from sam3.model.sam3_video_inference import (
+        Sam3VideoInferenceWithInstanceInteractivity,
+    )
 
 
 # Setup TensorFloat-32 for Ampere GPUs if available
@@ -563,8 +567,7 @@ def _load_checkpoint(model, checkpoint_path):
 
 def _setup_device_and_mode(model, device, eval_mode):
     """Setup model device and evaluation mode."""
-    if device == "cuda":
-        model = model.cuda()
+    model = model.to(device)
     if eval_mode:
         model.eval()
     return model
@@ -572,7 +575,7 @@ def _setup_device_and_mode(model, device, eval_mode):
 
 def build_sam3_image_model(
     bpe_path=None,
-    device="cuda" if torch.cuda.is_available() else "cpu",
+    device=None,
     eval_mode=True,
     checkpoint_path=None,
     load_from_HF=True,
@@ -585,16 +588,26 @@ def build_sam3_image_model(
 
     Args:
         bpe_path: Path to the BPE tokenizer vocabulary
-        device: Device to load the model on ('cuda' or 'cpu')
+        device: Torch device or device string. Defaults to CUDA, then MPS, then CPU.
         eval_mode: Whether to set the model to evaluation mode
         checkpoint_path: Optional path to model checkpoint
         enable_segmentation: Whether to enable segmentation head
         enable_inst_interactivity: Whether to enable instance interactivity (SAM 1 task)
-        compile_mode: To enable compilation, set to "default"
+        compile: Enable torch.compile (CUDA only).
 
     Returns:
         A SAM3 image model
     """
+    if device is None:
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
+    device = torch.device(device)
+    if compile and device.type != "cuda":
+        raise ValueError("compile=True is only supported for CUDA image inference")
     if bpe_path is None:
         bpe_path = str(files("sam3").joinpath("assets/bpe_simple_vocab_16e6.txt.gz"))
 
@@ -692,6 +705,10 @@ def build_sam3_video_model(
     Returns:
         Sam3VideoInferenceWithInstanceInteractivity: The instantiated dense tracking model
     """
+    from sam3.model.sam3_video_inference import (
+        Sam3VideoInferenceWithInstanceInteractivity,
+    )
+
     if bpe_path is None:
         bpe_path = str(files("sam3").joinpath("assets/bpe_simple_vocab_16e6.txt.gz"))
 
@@ -812,6 +829,8 @@ def build_sam3_video_model(
 
 
 def build_sam3_video_predictor(*model_args, gpus_to_use=None, **model_kwargs):
+    from sam3.model.sam3_video_predictor import Sam3VideoPredictorMultiGPU
+
     return Sam3VideoPredictorMultiGPU(
         *model_args, gpus_to_use=gpus_to_use, **model_kwargs
     )

@@ -21,8 +21,8 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "torch>=2.7",
-    "torchvision>=0.22",
+    "torch>=2.10",
+    "torchvision>=0.25",
     "timm>=1.0.17",
     "einops",
     "numpy>=1.26,<2",
@@ -45,8 +45,9 @@ notebooks = [
     "ipywidgets",
     "ipycanvas",
     "ipympl",
-    "decord",
+    "decord; sys_platform != 'darwin'",
     "opencv-python",
+    "pandas",
     "scikit-image",
     "scikit-learn",
 ]
@@ -109,8 +110,8 @@ url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cu128" }
-torchvision = { index = "pytorch-cu128" }
+torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'" }]
+torchvision = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'" }]
 flash-attn-3 = { index = "pytorch-cu128" }
 cc-torch = { git = "https://github.com/ronghanghu/cc_torch.git", rev = "446e9360ed10d3c8d03925ccb5f220ccb62009de" }
 

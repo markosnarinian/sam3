@@ -45,8 +45,13 @@ def concat_padded_sequences(seq1, mask1, seq2, mask2, return_index: bool = False
     assert seq1_length == mask1.size(1)
     assert seq2_length == mask2.size(1)
 
-    torch._assert_async(is_right_padded(mask1))
-    torch._assert_async(is_right_padded(mask2))
+    if mask1.device.type == "mps":
+        # MPS has no asynchronous assertion operator.
+        assert is_right_padded(mask1)
+        assert is_right_padded(mask2)
+    else:
+        torch._assert_async(is_right_padded(mask1))
+        torch._assert_async(is_right_padded(mask2))
 
     actual_seq1_lengths = (~mask1).sum(dim=-1)
     actual_seq2_lengths = (~mask2).sum(dim=-1)
@@ -590,6 +595,8 @@ class SequenceGeometryEncoder(nn.Module):
     def _encode_points(self, points, points_mask, points_labels, img_feats):
         points_embed = None
         n_points, bs = points.shape[:2]
+        if n_points == 0 and points.device.type == "mps":
+            return points.new_empty((0, bs, self.d_model)), points_mask
 
         if self.points_direct_project is not None:
             proj = self.points_direct_project(points)
@@ -633,6 +640,8 @@ class SequenceGeometryEncoder(nn.Module):
     def _encode_boxes(self, boxes, boxes_mask, boxes_labels, img_feats):
         boxes_embed = None
         n_boxes, bs = boxes.shape[:2]
+        if n_boxes == 0 and boxes.device.type == "mps":
+            return boxes.new_empty((0, bs, self.d_model)), boxes_mask
 
         if self.boxes_direct_project is not None:
             proj = self.boxes_direct_project(boxes)
@@ -645,8 +654,7 @@ class SequenceGeometryEncoder(nn.Module):
             # boxes are [Num_boxes, bs, 4], normalized in [0, 1]
             # We need to denormalize, and convert to [x, y, x, y]
             boxes_xyxy = box_cxcywh_to_xyxy(boxes)
-            scale = torch.tensor([W, H, W, H], dtype=boxes_xyxy.dtype)
-            scale = scale.pin_memory().to(device=boxes_xyxy.device, non_blocking=True)
+            scale = boxes_xyxy.new_tensor([W, H, W, H])
             scale = scale.view(1, 1, 4)
             boxes_xyxy = boxes_xyxy * scale
             sampled = torchvision.ops.roi_align(
