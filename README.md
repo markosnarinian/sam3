@@ -1,3 +1,177 @@
+# Fork documentation
+
+This is [markosnarinian/sam3](https://github.com/markosnarinian/sam3), a fork of
+[Meta's SAM 3](https://github.com/facebookresearch/sam3). This section describes
+the fork's current differences; the SAM 3 overview and upstream capabilities
+remain below. The comparison was checked against upstream `main` at
+[`f1647e8`](https://github.com/facebookresearch/sam3/commit/f1647e8)
+and this fork's implementation, not just commit titles.
+
+Contents:
+
+- [Scope and upstream compatibility](#scope-and-upstream-compatibility)
+- [Portable single-image inference](#portable-single-image-inference)
+- [Locked installation and optional dependencies](#locked-installation-and-optional-dependencies)
+- [Notebooks, training, and evaluation workflows](#notebooks-training-and-evaluation-workflows)
+- [Orb development environment](#orb-development-environment)
+- [Development checks and documentation maintenance](#development-checks-and-documentation-maintenance)
+
+## Scope and upstream compatibility
+
+The fork adds portable single-image execution, reproducible `uv` environments,
+updated setup instructions, and snapshot-ready Amp orb development. It does not
+introduce new model weights, segmentation algorithms, a hosted service, a new
+CLI, or keyboard shortcuts. Upstream checkpoint access and licensing still
+apply; see [Getting Started](#getting-started) and [License](LICENSE).
+
+Text/box image prompts, prompt reset, confidence filtering, embedding reuse,
+video tracking, SAM 3.1 multiplexing, training, and evaluation are upstream
+capabilities, not fork inventions. Several commits have different hashes but
+the same patches upstream: caller-mask video conditioning (`add_mask`), forced
+tracker propagation, streamed frame-output eviction, programmatic object-removal
+flags, refined-object broadcasting, exception-handler fixes, and type-suppression
+maintenance. Session cleanup and autocast restoration are also already upstream.
+They are not additional fork-only APIs. Likewise, references in shared commit
+messages to instance caps, seed-frame helpers, reverse box passes, or
+`--prompts-json` describe external integration code, not new entry points shipped
+by this repository. For upstream video usage, see [Video Usage](#video-usage-cuda)
+and [SAM 3.1 release notes](RELEASE_SAM3p1.md).
+
+## Portable single-image inference
+
+`build_sam3_image_model(device=None)` now selects the available device at call
+time in **CUDA → Apple MPS → CPU** order. Explicit strings (including indexed
+CUDA devices such as `"cuda:1"`) and `torch.device` values are honored.
+`Sam3Processor(model)` defaults to the model's device instead of hard-coded CUDA;
+if explicitly overriding its `device`, keep it consistent with the model.
+
+```python
+from sam3.model_builder import build_sam3_image_model
+from sam3.model.sam3_image_processor import Sam3Processor
+
+model = build_sam3_image_model()  # Or device="mps", "cpu", "cuda:0"
+processor = Sam3Processor(model)  # resolution=1008, confidence_threshold=0.5
+```
+
+Use the existing [Basic Usage](#basic-usage) examples for RGB image loading,
+text prompts, independent labels, output shapes, and offline checkpoint loading.
+Positive/negative boxes use the existing
+`processor.add_geometric_prompt(box, label, state)` API: `box` is normalized
+`[center_x, center_y, width, height]`, with `label=True` for positive and `False`
+for negative. The checkpoint format and output contract are unchanged; tensors
+remain on the model's device, so move them to CPU before NumPy conversion.
+
+Portability fixes remove image-path dependencies on CUDA-only video/Triton and
+training imports, use the standard-library resource loader for the bundled BPE
+vocabulary, allocate geometry tensors on their actual device, and move cached
+position encodings to the input device. MPS handles empty geometric prompts and
+padding checks without unsupported asynchronous assertions. The MLP uses normal
+PyTorch operations for CPU/MPS, float32, and gradient-enabled execution, retaining
+the fused CUDA path for inference with bfloat16 inputs or CUDA autocast.
+
+**Limits:** MPS requires a compatible Apple Silicon Mac and available PyTorch
+MPS backend. CPU/MPS use float32 by default; do not wrap them in CUDA autocast.
+`PYTORCH_ENABLE_MPS_FALLBACK` is not required. `compile=False` is the default;
+`compile=True` raises `ValueError` on non-CUDA image devices. This support is
+scoped to single-image inference, not a promise that all batched, interactive,
+video, evaluation, or training paths work on MPS/CPU. Video and training still
+require CUDA. No new accuracy or speed guarantees are implied.
+
+## Locked installation and optional dependencies
+
+Follow [Installation](#installation) to clone this fork and run
+`uv sync --locked`. The fork replaces the documented Conda/pip workflow with
+an editable `.venv`, committed `uv.lock`, and `.python-version` pin. Python is
+restricted to **3.12** (`>=3.12,<3.13`), rather than upstream's broader package
+metadata. The lock constrains **PyTorch 2.10.0 / torchvision 0.25.0**; Linux and
+Windows select CUDA 12.8 wheels, while macOS selects PyPI wheels. CUDA wheels
+can also run CPU inference without an NVIDIA GPU; CUDA execution requires a
+compatible NVIDIA driver. Existing Conda environments are not migrated in place.
+
+Core image dependencies now explicitly include torch, torchvision, einops,
+Pillow, psutil, and pycocotools. Optional environments are selected as follows:
+
+| Selection | Purpose |
+| --- | --- |
+| No extra/group | Basic image API; no dependency groups enabled by default |
+| `--extra notebooks` | Jupyter, visualization, and example dependencies |
+| `--extra train` | Training dependencies |
+| `--group dev` | pytest, coverage, formatters, and development utilities; replaces the old `dev` extra |
+| `--group eval` | Dataset preparation and evaluation tools |
+| `--group fa3` | FlashAttention-3 3.0.0 for supported Hopper CUDA hardware |
+| `--group cc-torch` | Locally built CUDA connected-components extension |
+
+Combine all required flags in one sync command: `uv sync` removes packages not
+selected by that command. `cc-torch` is pinned to source revision
+`446e9360ed10d3c8d03925ccb5f220ccb62009de`, with isolated build dependencies
+including torch 2.10.0; it still requires a system CUDA 12.8 toolkit (`nvcc`) and
+compatible C++ compiler. Drivers, toolkits, FFmpeg, weights, datasets, and access
+credentials are not provided by the Python lockfile. These environments do not
+constitute a deployment service or production GPU provisioning.
+
+## Notebooks, training, and evaluation workflows
+
+Run local notebooks from this checkout using the environment in
+[Examples](#examples). The single-image predictor notebook uses automatic device
+selection, CUDA-only autocast when available, and the bundled vocabulary rather
+than a hand-built path. Other example/Colab installation cells now use `uv`, but
+many still install **upstream** from GitHub and assume CUDA 12.8. To exercise this
+fork, use this checkout's locked environment instead; the Colab cells are not a
+locked or portable fork installation. The `notebooks` extra excludes `decord` on
+macOS, so video notebooks that import it are not covered by Mac image support.
+
+The [SAM 3 Agent notebook](examples/sam3_agent.ipynb) documents optional vLLM
+serving in a separate `.venv-vllm` using `uv venv --python 3.12` and
+`uv pip install --python .venv-vllm/bin/python vllm --torch-backend=auto`.
+Keep that tightly coupled torch/CUDA stack separate from SAM 3's lockfile;
+external LLM APIs do not need a local vLLM server. Follow the notebook for its
+server/model options. The separate environment is ignored by Git.
+
+The existing [training guide](README_TRAIN.md) and evaluation guides for
+[Gold](scripts/eval/gold/README.md), [Silver](scripts/eval/silver/README.md), and
+[VEval](scripts/eval/veval/README.md) now use `uv sync`/`uv run`. They remain the
+source for dataset preparation, paths, configuration, and local/SLURM commands;
+the fork changes environment setup, not those algorithms or benchmark contracts.
+
+## Orb development environment
+
+On Debian/Ubuntu-based Amp orbs, `.agents/setup` installs missing system packages
+(`build-essential`, `ca-certificates`, `curl`, `ffmpeg`, `libgl1`, `libglib2.0-0`)
+with sudo, installs uv 0.12.9 if uv is absent, and runs
+`uv sync --locked --group dev --extra train`. Existing uv installations are
+reused. Amp can snapshot the prepared environment; `.agents/resume` only checks
+that `.venv/bin/python` exists and reports its version, without reinstalling.
+If it is missing or dependencies need repair, rerun `.agents/setup`.
+
+Use `uv run --no-sync` to preserve the prepared feature set. Notebooks, evaluation
+groups, GPU extensions/toolchains, drivers, checkpoints, and Hugging Face
+credentials are not provisioned by these hooks. CPU tests can run without GPU
+access, but GPU inference/training still needs suitable hardware. Generated orb
+portal metadata in `.amp/portals/` is ignored; no application service or portal
+is configured by these hooks. See [Contributing](CONTRIBUTING.md#amp-orbs).
+
+## Development checks and documentation maintenance
+
+See [Contributing](CONTRIBUTING.md#development-environment) for dependency updates
+(`uv lock`), lock consistency (`uv lock --check`), and formatting. With the locked
+development/training environment installed, the full repository test command is:
+
+```bash
+uv run --no-sync pytest -q test
+```
+
+Pass `test` explicitly: pytest's configured `testpaths` says `tests`, but the
+repository suite lives in `test/`. The fork adds full-model image execution,
+MLP float32 correctness, and position-cache device regression tests. See
+[Checking image inference](#checking-image-inference) for targeted checks and
+`SAM3_TEST_CHECKPOINT`. Without that optional authorized checkpoint, image tests
+use initialized random weights: they validate execution and output contracts,
+not segmentation quality. Unavailable MPS/CUDA devices are skipped.
+
+Root [AGENTS.md](AGENTS.md) requires documentation changes alongside changes to
+documented behavior or workflows, synchronized contents links, and removal of
+obsolete claims. Implementation-only changes do not require README churn.
+
 # SAM 3: Segment Anything with Concepts
 
 Meta Superintelligence Labs
